@@ -14,22 +14,25 @@ public class Player : NetworkBehaviour
     
     bool immortal;
     float shotLounchTime;
+    
     Camera cam;
     Rigidbody my_RB;
+    Animator my_Anima;
 
     private void Awake()
     {
         my_RB = GetComponent<Rigidbody>();
         cam = GetComponentInChildren<Camera>();
-        cam.gameObject.tag = "MainCamera";
+        
+        my_Anima = GetComponent<Animator>();
     }
     // Start is called before the first frame update
     void Start()
     {
         
-        if (hasAuthority)
+        if (!hasAuthority)
         {
-            
+            cam.gameObject.SetActive(false);
         }
         
     }
@@ -40,8 +43,10 @@ public class Player : NetworkBehaviour
         if (hasAuthority && !onShot)
         {
             my_RB.velocity = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical")) * speed;
-            cam.transform.Rotate(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"), 0);
+            cam.transform.Rotate(-Input.GetAxis("Mouse Y"), 0, 0);
+            transform.Rotate(0, Input.GetAxis("Mouse X"), 0);
             if (Input.GetButtonDown("Fire1")) StartCoroutine(Shot());
+            my_Anima.SetFloat("Speed", my_RB.velocity.magnitude);
         }
     }
     bool barier;
