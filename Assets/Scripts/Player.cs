@@ -53,8 +53,12 @@ public class Player : NetworkBehaviour
         
         if (!hasAuthority)
         {
-            gameObject.layer = 0;
+            
             my_cam.gameObject.SetActive(false);
+        }
+        else
+        {
+            gameObject.layer = 0;
         }
         
     }
