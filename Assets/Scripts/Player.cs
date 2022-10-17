@@ -6,12 +6,30 @@ using TMPro;
 
 public class Player : NetworkBehaviour
 {
+    [SyncVar(hook = nameof(UpdateName))]
+    //[SyncVar]
+    public string s_myName;
+    string myName;
+
+    [SyncVar(hook = nameof(UpdateImmortal))]
+    //[SyncVar]
+    public int s_Immortal;
+    int immortal;
+
+    [SyncVar(hook = nameof(UpdatePoints))]
+    public int s_Points;
+    int points;
+
+    public TextMeshPro nameText;
+    public TextMeshPro pointsText;
+    public Transform my_cam;
+    public Transform person;
+    static Camera actionCam;
+
     [SerializeField]
     float speed = 4f;
     [SerializeField]
-    float shotLength = 3f;
-    [SerializeField]
-    float shotForce = 5f;
+    float shotLength = 5f;
     [SerializeField]
     Color normalColor;
     [SerializeField]
@@ -20,83 +38,102 @@ public class Player : NetworkBehaviour
     float immortalTime = 3f;
     [SerializeField]
     float sensetive = 5f;
-    [SerializeField]
-    TextMeshProUGUI pointsText;
-    int points;
-    bool immortal;
-    float shotLounchTime;
     
-    Camera my_cam;
+    [HideInInspector]
+    public bool isMe;
+    [HideInInspector]
+    public bool control = true;
+    //public bool immortal;
+    Vector3 lastposition;
+
     Rigidbody my_RB;
     Animator my_Anima;
     Renderer my_BodyRend;
     CapsuleCollider my_Cldr;
-
+    public NetworkTransform my_NT;
+    Level level;
+    Status status;
     private void Awake()
     {
+
         my_RB = GetComponent<Rigidbody>();
-        my_cam = GetComponentInChildren<Camera>();
         my_Anima = GetComponent<Animator>();
         my_BodyRend = GetComponentInChildren<Renderer>();
-        pointsText = FindObjectOfType<TextMeshProUGUI>();
-        pointsText.text = points.ToString();
+
         my_Cldr = GetComponent<CapsuleCollider>();
-        
+        my_NT = GetComponent<NetworkTransform>();
         //-----------------Переместить
-        Cursor.visible = false;
-        Cursor.lockState = CursorLockMode.Locked;
+
         //-----------------------------
     }
     // Start is called before the first frame update
     void Start()
     {
-        
-        if (!hasAuthority)
+        isMe = hasAuthority;
+        level = Level.instance;
+        status = Status.instance;
+        level.pointsText.gameObject.SetActive(true);
+        level.AddPlayer(this);
+        level.pointsText.text = points.ToString();
+        lastposition = transform.position;
+        if (isMe)
         {
-            
-            my_cam.gameObject.SetActive(false);
+            CallBang(netId);
+            actionCam = GetComponentInChildren<Camera>();
+            Status.instance.HideMouse();
+            gameObject.layer = 0;
+            nameText.gameObject.SetActive(false);
+            TakeName();
         }
         else
         {
-            gameObject.layer = 0;
+            UpdateColor();
+            my_cam.gameObject.SetActive(false);
         }
-        
     }
-    
+
     // Update is called once per frame
     void Update()
     {
-        if (hasAuthority && !onShot)
-        {
-            my_RB.velocity = speed * (transform.forward * Input.GetAxis("Vertical") + transform.right * Input.GetAxis("Horizontal"));
-            my_cam.transform.Rotate(-Input.GetAxis("Mouse Y") * sensetive, 0 , 0) ;
-            transform.Rotate(0, Input.GetAxis("Mouse X") * sensetive, 0);
-            if (Input.GetButtonDown("Fire1")) Shot();
-            my_Anima.SetFloat("Speed", my_RB.velocity.magnitude);
-        }
-    }
-    bool stopShot;
 
-    private void OnCollisionEnter(Collision collision)
-    {
-        if (onShot)
+        if (isMe)
         {
-            if (collision.gameObject.tag == "Barier") stopShot = true;
-          /*  if (collision.gameObject.tag == "Player")
+            if (control)
             {
-                stopShot = true;
-                Player other = collision.gameObject.GetComponent<Player>();
-                if (!other.getOnShot() || other.getShotLounchTime() < shotLounchTime)
-                {
-                    other.Bang();
-                    points++;
-                    pointsText.text = points >= 3 ? "win" : points.ToString();
-                }
-            }*/
+                my_RB.velocity = speed * (my_cam.forward * Input.GetAxis("Vertical") + my_cam.right * Input.GetAxis("Horizontal"));
+                my_cam.Rotate(-Input.GetAxis("Mouse Y") * sensetive, Input.GetAxis("Mouse X") * sensetive, 0);
+                my_cam.localEulerAngles = new Vector3(Mathf.Clamp(normalAngle(my_cam.transform.eulerAngles.x), -45, 45), my_cam.localEulerAngles.y, 0);
+                if (Input.GetButtonDown("Fire1")) Shot();
+                my_Anima.SetFloat("Speed", my_RB.velocity.magnitude);
+
+            }
+            else 
+            {
+                my_RB.velocity = Vector3.zero;
+            }
         }
+        else
+        {
+            if (actionCam != null) nameText.transform.LookAt(actionCam.transform);
+            if (nameText.text != myName) nameText.text = myName;
+        }
+
+        UpdateColor();
+        person.LookAt(2 * transform.position - lastposition);
+        lastposition = transform.position;
     }
 
-    bool onShot;
+    private void OnDestroy()
+    {
+        level.RemovePlayer(netId);
+        status.ShowMouse();
+    }
+    void UpdateColor()
+    {
+        my_BodyRend.material.color = immortal == 1 ? immortalColor : normalColor;
+    }
+
+
     public void Shot()
     {
         RaycastHit hit, nearestHit;
@@ -108,7 +145,7 @@ public class Player : NetworkBehaviour
         {
             for (int y = 0; y <= numRays.y; y++)
             {
-                if (Physics.Raycast(transform.position + transform.right * my_Cldr.radius / (2 *numRays.x) * x + transform.up * my_Cldr.height / (numRays.y) * y, transform.forward, out hit, shotLength, 1 << 6))
+                if (Physics.Raycast(transform.position + my_cam.right * my_Cldr.radius / (2 * numRays.x) * x + transform.up * my_Cldr.height / (numRays.y) * y, my_cam.forward, out hit, shotLength, 1 << 6))
                 {
                     if (hit.distance < dist)
                     {
@@ -119,43 +156,162 @@ public class Player : NetworkBehaviour
                 }
             }
         }
-        pointsText.text = string.Format("{0}\n{1}\n{2}", (hited ? "!!!" : "???"), dist, (hited ? nearestHit.transform.gameObject.tag : ""));
         if (hited)
         {
             if (nearestHit.transform.gameObject.tag == "Player")
             {
-                nearestHit.transform.GetComponent<Player>().Bang();
+                Player other = nearestHit.transform.GetComponent<Player>();
+                if (other.immortal == 0)
+                {
+                    CallBang(other.netId);
+                    SetPoints(points + 1);
+
+                }
             }
         }
-        transform.Translate(transform.forward * (dist - my_Cldr.radius),Space.World);
-
+        transform.Translate(new Vector3(my_cam.forward.x, 0, my_cam.forward.z).normalized * (dist - my_Cldr.radius), Space.World);
+        person.LookAt(transform.position + new Vector3(my_cam.forward.x, 0, my_cam.forward.z).normalized);
     }
-    /*
-    IEnumerator Shot()
+
+    [Command]
+    void Finish() => level.Finish(this);
+
+    public void TakeName()
     {
-        RaycastHit hit;
-        
-        onShot = true;
-        my_RB.velocity = shotForce * speed * transform.forward;
-        Vector3 startPosition = transform.position;
-        while (Vector3.Magnitude(transform.position - startPosition) < shotLength && !stopShot) yield return new WaitForEndOfFrame();
-        onShot = false;
-        stopShot = false;
-        
-    }*/
+        Dictionary<uint,Player> players = Level.instance.players;
+        string newName = status.playerName;
+        if (newName == string.Empty) newName = "Player " + (players.Count).ToString();
+
+        int thisNames = 0;
+        foreach (Player p in players.Values)
+        {
+            if (p.GetName() == newName)
+            {
+                thisNames++;
+                newName = status.playerName + " " + thisNames.ToString();
+            }
+        }
+        SetName(newName);
+        /*
+        if (isServer) SetSrvName(newName);
+        else SetComName(newName);
+        */
+    }
+
+    public string GetName() => myName;
+
+    
     public void Bang()
     {
-        if (!immortal) StartCoroutine(C_Bang());
+        //SetImmortal(!immortal);
+        StartCoroutine(C_Bang());
     }
 
+    public void CallBang(uint netId)
+    {
+        if (isServer) CallBangSRV(netId);
+        else CallBangCMD(netId);
+                
+    }
+    [Server]
+    public void CallBangSRV(uint netId)
+    {
+        level.players[netId].Bang();
+    }
+    [Command]
+    public void CallBangCMD(uint netId)
+    {
+        CallBangSRV(netId);
+    }
+
+    public void Reset(Transform newPosition)
+    {
+        transform.position = newPosition.position;
+        SetPoints(0);
+        control = true;
+        CallBang(netId);
+    }
     IEnumerator C_Bang()
     {
-        immortal = true;
-        my_BodyRend.material.color = immortalColor;
-        yield return new WaitForSeconds(immortalTime);
-        immortal = false;
-        my_BodyRend.material.color = normalColor;
+        if (immortal == 0)
+        {
+            SetImmortal(1);
+            //   UpdateColor();
+            yield return new WaitForSeconds(immortalTime);
+            SetImmortal(0);
+            //   UpdateColor();
+        }
     }
-    public float getShotLounchTime() => shotLounchTime;
-    public bool getOnShot() => onShot;
+
+    //--------------------------------------------------
+    //Sync
+
+    //NAME--------------------------
+    void UpdateName(string oldValue, string newValue)
+    {
+        myName = newValue;
+        if (!isMe) nameText.text = newValue;
+    }
+
+    void SetName(string val)
+    {
+        if (isServer) SetSrvName(val);
+        else SetComName(val);
+    }
+
+    [Server]
+    void SetSrvName(string val)
+    {
+        s_myName = val;
+    }
+    [Command]
+    void SetComName(string val)
+    {
+        SetSrvName(val);
+    }
+    //-----------------------NAME
+
+    //Immortal-------------------
+    void SetImmortal(int newVar)
+    {
+        if (isServer) SetSrvImmortal(newVar);
+        else SetComImmortal(newVar);
+    }
+
+    [Server]
+    public void SetSrvImmortal(int newVar) => s_Immortal = newVar;
+
+    [Command]
+    public void SetComImmortal(int newVar) => SetSrvImmortal (newVar);
+
+    void UpdateImmortal(int oldValue, int newValue) => immortal = newValue;
+    
+    //-----------------Immortal
+    //Points--------------------
+    
+    void SetPoints(int val)
+    {
+        if (isServer) SetSrvPoints(val);
+        else SetComPoints(val);
+    }
+    [Server]
+    public void SetSrvPoints(int val) => s_Points = val;
+    [Command]
+    public void SetComPoints(int val) => SetSrvPoints(val);
+    void UpdatePoints(int oldValue, int newValue)
+    {
+        points = newValue;
+        if (isMe)
+        {
+            level.pointsText.text = points.ToString();
+            if (points >= 3)
+            {
+                Finish();
+            }
+        }
+        pointsText.text = points.ToString();
+    }
+    //-------------Points
+    //Math
+    public float normalAngle(float angle) => angle < 180 ? angle : angle - 360;
 }
